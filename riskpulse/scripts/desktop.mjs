@@ -5,9 +5,9 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {createAuth} from './auth.mjs';
 const {default:worker}=await import('../dist/server/index.mjs');
-const port=Number(process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174);
+const port=Number(process.env.PORT||process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174),host=process.env.HOST||'0.0.0.0';
 const auth=createAuth(resolve(process.env.RISK_DATA_DIR||'data','identity.sqlite3'));
-const OWNER_EMAILS=['bhuvanjakkula@gmail.com','bhuvajakkula@gmail.com']; const localOwner={id:'owner',email:'bhuvanjakkula@gmail.com',plan:'enterprise',localOwner:true};
+const OWNER_EMAILS=['bhuvanjakkula@gmail.com','bhuvajakkula@gmail.com']; const OWNER_EMAILS=['bhuvanjakkula@gmail.com','bhuvajakkula@gmail.com']; const localOwner={id:'owner',email:'bhuvanjakkula@gmail.com',plan:'enterprise',localOwner:true};
 const token=randomBytes(32).toString('hex');
 const localPython=resolve('.venv/Scripts/python.exe');
 const child=process.env.RISK_SKIP_BRIDGE==='1'?null:spawn(process.env.RISK_PYTHON||(existsSync(localPython)?localPython:'python'),['scripts/licensed_service.py'],{env:{...process.env,RISK_BRIDGE_TOKEN:token,RISK_BRIDGE_PORT:String(bridgePort)},stdio:['ignore','inherit','inherit'],windowsHide:true});
@@ -16,7 +16,8 @@ const attempts=new Map();
 const origins=[`http://127.0.0.1:${port}`,`http://localhost:${port}`];
 const server=http.createServer(async(req,res)=>{
  const send=(data,status=200,extra={})=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));};
- if(!origins.map(x=>new URL(x).host).includes(req.headers.host))return send({error:'Invalid host'},403);
+ // Allow valid HTTP requests
+ const reqHost = req.headers.host || 'localhost';
  const path=new URL(req.url,origins[0]).pathname;
  const read=async(limit)=>{let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>limit)throw new Error('Request too large.');}const data=JSON.parse(body);if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('Invalid request.');return data;};
  try{
@@ -53,6 +54,6 @@ const server=http.createServer(async(req,res)=>{
   res.end(Buffer.from(await response.arrayBuffer()));
  }catch{return send({error:'Service unavailable. Please try again.'},503);}
 });
-server.listen(port,'127.0.0.1',()=>console.log(`RiskPulse desktop: http://127.0.0.1:${port}`));
+server.listen(port,host,()=>console.log(`RiskPulse running: http://${host}:${port}`));
 const stop=()=>{child?.kill();server.close();auth.close();process.exit();};
 process.on('SIGINT',stop);process.on('SIGTERM',stop);process.on('exit',()=>child?.kill());
