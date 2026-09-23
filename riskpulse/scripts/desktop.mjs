@@ -7,8 +7,7 @@ import {createAuth} from './auth.mjs';
 const {default:worker}=await import('../dist/server/index.mjs');
 const port=Number(process.env.PORT||process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174),host=process.env.HOST||'0.0.0.0';
 const auth=createAuth(resolve(process.env.RISK_DATA_DIR||'data','identity.sqlite3'));
-const OWNER_EMAILS=['bhuvanjakkula@gmail.com','bhuvajakkula@gmail.com'];
-const localOwner={id:'owner',email:'bhuvanjakkula@gmail.com',plan:'enterprise',localOwner:true};
+const localOwner=null;
 const token=randomBytes(32).toString('hex');
 const localPython=resolve('.venv/Scripts/python.exe');
 const child=process.env.RISK_SKIP_BRIDGE==='1'?null:spawn(process.env.RISK_PYTHON||(existsSync(localPython)?localPython:'python'),['scripts/licensed_service.py'],{env:{...process.env,RISK_BRIDGE_TOKEN:token,RISK_BRIDGE_PORT:String(bridgePort)},stdio:['ignore','inherit','inherit'],windowsHide:true});
@@ -17,11 +16,12 @@ const attempts=new Map();
 const origins=[`http://127.0.0.1:${port}`,`http://localhost:${port}`];
 const server=http.createServer(async(req,res)=>{
  const send=(data,status=200,extra={})=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...extra});res.end(JSON.stringify(data));};
- const reqHost = req.headers.host || 'localhost';
- const path=new URL(req.url, `http://${reqHost}`).pathname;
+ if(!origins.map(x=>new URL(x).host).includes(req.headers.host))return send({error:'Invalid host'},403);
+ const path=new URL(req.url,origins[0]).pathname;
  const read=async(limit)=>{let body='';for await(const chunk of req){body+=chunk;if(Buffer.byteLength(body)>limit)throw new Error('Request too large.');}const data=JSON.parse(body);if(!data||typeof data!=='object'||Array.isArray(data))throw new Error('Invalid request.');return data;};
  try{
   if(!['GET','HEAD','POST'].includes(req.method))return send({error:'Method not allowed'},405);
+  if(req.method==='POST'&&(!origins.includes(req.headers.origin)||!req.headers['content-type']?.startsWith('application/json')))return send({error:'Same-origin JSON request required'},403);
   const user=auth.session(req)||localOwner;
   if(path==='/api/auth/me'&&req.method==='GET')return send({user});
   if(path==='/api/auth/signout'&&req.method==='POST')return send({ok:true},200,{'Set-Cookie':auth.signout(req)});
@@ -29,14 +29,7 @@ const server=http.createServer(async(req,res)=>{
    const key=req.socket.remoteAddress,now=Date.now();
    let entry=attempts.get(key);if(!entry||entry.until<now)entry={count:0,until:now+15*60*1000};
    attempts.set(key,entry);if(++entry.count>20)return send({error:'Too many attempts. Try again in 15 minutes.'},429,{'Retry-After':'900'});
-   try{
-     const data=await read(8192);
-     const isOwner = OWNER_EMAILS.includes((data.email||'').trim().toLowerCase());
-     if(isOwner) return send({user:{id:'owner',email:data.email,plan:'enterprise',localOwner:true}});
-     const result=await auth[path.endsWith('signup')?'signup':'signin'](data);
-     if(path.endsWith('signin'))attempts.delete(key);
-     return send({user:result.user},200,{'Set-Cookie':result.cookie});
-   }
+   try{const data=await read(8192);const result=await auth[path.endsWith('signup')?'signup':'signin'](data);if(path.endsWith('signin'))attempts.delete(key);return send({user:result.user},200,{'Set-Cookie':result.cookie});}
    catch(e){return send({error:e instanceof SyntaxError?'Invalid request.':e.message},400);}
   }
   const publicAsset=['/','/index.html','/landing.css','/landing.js'].includes(path);
@@ -55,11 +48,11 @@ const server=http.createServer(async(req,res)=>{
   }
   if(req.method==='POST')return send({error:'Method not allowed'},405);
   const assetPath=path==='/app'?'/dashboard.html':path==='/plans'?'/plans.html':path;
-  const response=await worker.fetch(new Request(`http://${reqHost}`+assetPath,{method:req.method}));
+  const response=await worker.fetch(new Request(origins[0]+assetPath,{method:req.method}));
   res.writeHead(response.status,{...Object.fromEntries(response.headers),'Cache-Control':'no-store','X-Frame-Options':'DENY','X-Content-Type-Options':'nosniff','Referrer-Policy':'same-origin','Content-Security-Policy':"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'"});
   res.end(Buffer.from(await response.arrayBuffer()));
  }catch{return send({error:'Service unavailable. Please try again.'},503);}
 });
-server.listen(port,host,()=>console.log(`RiskPulse running: http://${host}:${port}`));
+server.listen(port,host,()=>console.log(`RiskPulse desktop: http://${host}:${port}`));
 const stop=()=>{child?.kill();server.close();auth.close();process.exit();};
 process.on('SIGINT',stop);process.on('SIGTERM',stop);process.on('exit',()=>child?.kill());
