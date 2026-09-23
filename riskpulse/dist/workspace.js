@@ -37,5 +37,5 @@ $('paperOrderForm').addEventListener('input',()=>pendingKey=null);
 $('paperAccount').onchange=e=>{activeId=e.target.value;pendingKey=null;renderWorkspace();};$('workspaceRefresh').onclick=refresh;
 $('paperExport').onclick=()=>download('riskpulse-paper-account.json',JSON.stringify({exportedAt:new Date().toISOString(),mode:'Paper simulation; monetary values in USD cents',account:account()},null,2),'application/json');
 $('loadPaperRisk').onclick=()=>{const a=account();if(!a)return;positions=Object.entries(a.holdings).map(([ticker,h])=>({ticker,name:ticker,sector:h.sector,shares:h.quantity,price:h.mark/100,nativePrice:h.mark/100,currency:'USD',fxToUSD:1,side:1,day:0,beta:1,adv:null,cp:'Paper account',credit:'N/A',asOf:h.asOf.slice(0,10),priceSource:'Assumed paper fill'}));equity=(a.cash+Object.values(a.holdings).reduce((s,h)=>s+h.quantity*h.mark,0))/100;source='Paper simulation · '+a.name;$('equityInput').value=equity;render();renderEvidence();show('overview');feedback('Paper holdings loaded. Prices are assumed fills; beta is 1 and ADV is unknown.');};
-refresh();
+refresh();show('workspace');
 })();
