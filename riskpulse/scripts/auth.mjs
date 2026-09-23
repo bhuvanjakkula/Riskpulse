@@ -29,16 +29,6 @@ export function createAuth(path){
   if(!['professional','business','enterprise'].includes(plan))throw new Error('Choose a valid plan.');
   db.prepare('UPDATE users SET plan=? WHERE id=?').run(plan,id);
   return {plan,subscriptionActive:false};
- },localOwner(email){
-  email=email.trim().toLowerCase();
-  if(email!=='bhuvanjakkula@gmail.com')throw new Error('Local owner is not configured for this email.');
-  let u=db.prepare('SELECT * FROM users WHERE email=?').get(email);
-  if(!u){
-   const salt=randomBytes(16).toString('hex');
-   db.prepare('INSERT INTO users VALUES(?,?,?,?,?,?,?)').run(randomUUID(),email,'',salt,randomBytes(64).toString('hex'),'owner',Date.now());
-   u=db.prepare('SELECT * FROM users WHERE email=?').get(email);
-  }
-  return {...publicUser(u),plan:'owner',access:'Local owner · Free access',localOwner:true};
  },close:()=>db.close(),async signup(data){
   const email=typeof data.email==='string'?data.email.trim().toLowerCase():'';
   const mobile=typeof data.mobile==='string'?data.mobile.replace(/[\s()-]/g,''):'';
