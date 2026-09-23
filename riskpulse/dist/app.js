@@ -1,7 +1,7 @@
 'use strict';
 const $=id=>document.getElementById(id), money=new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',maximumFractionDigits:0});
 const fmt=n=>money.format(n), percent=n=>n.toFixed(1)+'%', esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let positions=[],equity=10000000,source='No portfolio loaded';
+let positions=structuredClone(samplePositions),equity=10000000,source='Demonstration · synthetic holdings';
 const scenarios=[{name:'Market −5%',kind:'all',shock:-.05},{name:'Technology −8%',kind:'Technology',shock:-.08},{name:'Bond price −2.5%',kind:'Fixed Income',shock:-.025},{name:'Energy −10%',kind:'Energy',shock:-.10}];
 const impact=s=>Risk.stress(positions,s.kind,s.shock).reduce((sum,o)=>sum+o.x,0), order=o=>Object.entries(o).sort((a,b)=>b[1]-a[1]);
 const largest=()=>[...positions].sort((a,b)=>Math.abs(Risk.value(b))-Math.abs(Risk.value(a)))[0];
@@ -92,4 +92,4 @@ if(document.modelContext?.registerTool){try{
  document.modelContext.registerTool({name:'read_portfolio_risk',description:'Read calculated exposures and alerts from this portfolio snapshot.',inputSchema:{type:'object',properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:async()=>({equity,...pf(),alerts:alerts()})});
  document.modelContext.registerTool({name:'run_portfolio_stress',description:'Apply an exact shock between -100 and +100 percent to all positions or an existing sector.',inputSchema:{type:'object',properties:{target:{type:'string'},move_pct:{type:'number',minimum:-100,maximum:100}},required:['target','move_pct'],additionalProperties:false},execute:async input=>{if(!input||!['all',...sectors().map(s=>s[0])].includes(input.target)||!Number.isFinite(input.move_pct)||Math.abs(input.move_pct)>100)throw Error('Invalid target or move');$('shockTarget').value=input.target;$('shockMove').value=input.move_pct;renderStress();show('stress');return{target:input.target,move_pct:input.move_pct,estimated_impact:Risk.stress(positions,input.target,input.move_pct/100).reduce((s,o)=>s+o.x,0)}}});
 }catch{}}
-render();show('government');
+render();show('overview');
