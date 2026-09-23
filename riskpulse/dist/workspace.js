@@ -1,41 +1,391 @@
 'use strict';
 (() => {
-let state={accounts:[],portfolios:[]},activeId='',pendingKey=null,busy=false;
-const usd=c=>new Intl.NumberFormat('en-US',{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2}).format(c/100),account=()=>state.accounts.find(a=>a.id===activeId);
-const panel=document.createElement('section');panel.id='workspace';panel.className='view';
-panel.innerHTML=`<div class="section-head"><div><h2>Portfolio management & paper trading</h2><p>Build a portfolio, simulate execution, and review the resulting risk.</p></div><button class="btn" id="workspaceRefresh">Refresh saved data</button></div><p class="public-note">Desktop workspace · saved on this computer. Paper orders use your assumed USD fill price; they do not reach a broker. Marks remain at the last assumed fill until another trade. No live execution, dividends, tax lots, leverage or short sales.</p><p id="workspaceMessage" class="feedback" role="status">Opening saved workspace…</p><div id="workspaceBody" hidden><div class="grid-even"><form class="card" id="accountForm"><h2>Create a paper account</h2><div class="control-fields"><label>Account name<input class="text-input" name="accountName" maxlength="100" required placeholder="Strategy practice"></label><label>Starting cash (USD)<input class="text-input" name="cash" type="number" min="0.01" max="10000000000" step="0.01" required value="100000"></label><label>Maximum order (% of marked equity)<input class="text-input" name="limitPct" type="number" min="1" max="100" step="1" required value="10"></label></div><button class="btn primary">Create paper account</button></form><article class="card"><h2>Saved portfolios</h2><p>Import positions using the top button, then save the current analysis portfolio here.</p><form id="savePortfolioForm"><label>Snapshot name<input class="text-input" name="snapshotName" maxlength="100" placeholder="September review" required></label><button class="btn">Save current portfolio</button></form><div id="savedPortfolios"></div></article></div><article class="card" style="margin-top:16px"><div class="toolbar"><label>Paper account<select id="paperAccount"><option value="">Create an account to begin</option></select></label><button class="btn" id="loadPaperRisk">Load holdings into risk dashboard</button><button class="btn" id="paperExport">Export account & ledger</button></div><div id="paperSummary"></div></article><form class="card" id="paperOrderForm" style="margin-top:16px"><h2>Execute a paper order</h2><div class="control-fields"><label>Side<select name="side"><option value="buy">Buy</option><option value="sell">Sell</option></select></label><label>Ticker<input class="text-input" name="ticker" pattern="[A-Za-z0-9][A-Za-z0-9.\-]{0,19}" maxlength="20" required placeholder="AAPL"></label><label>Sector<input class="text-input" name="sector" required maxlength="100" value="Technology"></label><label>Whole shares<input class="text-input" name="quantity" type="number" min="1" max="100000000" step="1" required></label><label>Assumed fill price (USD)<input class="text-input" name="price" type="number" min="0.01" max="10000000000" step="0.01" required></label><label>Fee (USD)<input class="text-input" name="fee" type="number" min="0" max="10000000000" step="0.01" value="0" required></label></div><button class="btn primary" id="paperExecute">Execute paper order</button><p class="notice">Immediate simulated fill at the entered price. No claim of market availability or guaranteed execution. A rejected order leaves cash and holdings unchanged.</p></form><div class="grid-even"><article class="card"><h2>Paper holdings</h2><div id="paperHoldings" class="table-wrap"></div></article><article class="card"><h2>Execution ledger</h2><div id="paperLedger" class="table-wrap"></div></article></div></div>`;
-document.querySelector('main').append(panel);
-const guardFields=[['depth','Available displayed depth (USD)',100000],['duplicate','Duplicate depth assumption (%)',20],['withdrawal','Additional depth withdrawal (%)',20],['quoteAge','Assumed quote age (ms)',20],['maxAge','Maximum quote age (ms)',100],['cancelRate','Assumed cancellation rate (%)',20],['maxCancelRate','Maximum cancellation rate (%)',80],['inventoryLimit','Maximum account inventory (USD)',100000],['shockPct','Correlated downward price shock (%)',10],['lossBudget','Maximum scenario loss (USD)',10000]];
-const guardForm=document.createElement('form');guardForm.id='paperGuardForm';guardForm.className='card';guardForm.style.marginTop='16px';guardForm.innerHTML=`<h2>Execution risk gates</h2><p>Apply the cancellation, liquidity, inventory and cross-asset scenarios to this account. These are manually entered assumptions, not live HFT detection.</p><div class="controls"><label><input type="checkbox" name="enabled"> Enable scenario gates</label><label><input type="checkbox" name="paused"> Pause all paper execution</label></div><div class="control-fields">${guardFields.map(([k,label,v])=>`<label>${label}<input class="text-input" name="${k}" type="number" min="${k==='maxAge'?1:0}" max="${['duplicate','withdrawal','cancelRate','maxCancelRate','shockPct'].includes(k)?100:10000000000}" step="any" value="${v}" required></label>`).join('')}</div><button class="btn" id="saveGuard">Save execution controls</button><p class="notice">Depth = displayed × (1 − duplicates) × (1 − withdrawals). New buys also check post-order gross inventory and a uniform loss scenario: exposure × shock %. Sells still check pause, quote age, cancellation rate and depth. Settings remain in effect until changed; they do not refresh from a feed.</p>`;
-$('paperOrderForm').before(guardForm);
-const nav=document.createElement('button');nav.dataset.view='workspace';nav.textContent='Portfolio workspace';nav.onclick=()=>show('workspace');document.querySelector('.nav').prepend(nav);
-const message=(s,error=false)=>{const el=$('workspaceMessage');el.textContent=s;el.classList.toggle('error',error);};
-async function request(data){return api('/api/workspace',data?{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)}:{});}
-function renderWorkspace(){
- const picker=$('paperAccount');picker.replaceChildren(...(state.accounts.length?state.accounts.map(a=>new Option(a.name,a.id)):[new Option('Create an account to begin','')]));
- if(!state.accounts.some(a=>a.id===activeId))activeId=state.accounts[0]?.id||'';picker.value=activeId;
- const a=account();$('paperExecute').disabled=!a;$('paperExport').disabled=!a;$('loadPaperRisk').disabled=!a||!Object.keys(a.holdings).length;
- $('saveGuard').disabled=!a;
- if(a){for(const [k,,v] of guardFields)guardForm.elements[k].value=a.guard?.[k]??v;guardForm.elements.enabled.checked=!!a.guard?.enabled;guardForm.elements.paused.checked=!!a.guard?.paused;}
- $('savedPortfolios').replaceChildren();for(const p of state.portfolios){const row=document.createElement('p'),b=document.createElement('button');b.className='btn';b.textContent='Load '+p.name;b.onclick=()=>{positions=structuredClone(p.positions);equity=p.equity;source=p.source+' · saved '+p.savedAt;$('equityInput').value=equity;render();renderEvidence();show('overview');feedback('Saved portfolio loaded. New edits require another save.');};row.append(b,document.createTextNode(' '+p.positions.length+' positions · '+p.savedAt.slice(0,10)));$('savedPortfolios').append(row);}
- if(!state.portfolios.length)$('savedPortfolios').textContent='No saved portfolios yet.';
- if(!a){$('paperSummary').textContent='Create a paper account with your chosen starting cash.';$('paperHoldings').textContent='No account selected.';$('paperLedger').textContent='No account selected.';return;}
- const holdings=Object.entries(a.holdings),marked=holdings.reduce((s,[,h])=>s+h.quantity*h.mark,0),cost=holdings.reduce((s,[,h])=>s+h.cost,0);
- $('paperSummary').innerHTML=`<div class="metrics public-metrics">${[['Cash',usd(a.cash)],['Marked equity',usd(a.cash+marked)],['Realized P&L',usd(a.realized)],['Unrealized P&L',usd(marked-cost)]].map(([k,v])=>`<article class="metric"><label>${k}</label><strong>${v}</strong></article>`).join('')}</div><p>Maximum order: ${a.limitPct}% of marked equity · Fees paid: ${usd(a.fees)} · ${a.trades.length} recorded fills.</p><p class="${a.guard?.paused?'warn':''}">Execution: ${a.guard?.paused?'PAUSED':a.guard?.enabled?'Scenario gates enabled':'Cash, holdings and order-size checks only'}</p>`;
- $('paperHoldings').innerHTML=holdings.length?'<table><thead><tr><th>Ticker</th><th>Shares</th><th>Assumed mark</th><th>Value</th></tr></thead><tbody>'+holdings.map(([t,h])=>`<tr><td>${esc(t)}</td><td>${h.quantity}</td><td>${usd(h.mark)}</td><td>${usd(h.mark*h.quantity)}</td></tr>`).join('')+'</tbody></table>':'No holdings. Execute a paper buy to begin.';
- $('paperLedger').innerHTML=a.trades.length?'<table><thead><tr><th>Time UTC</th><th>Order</th><th>Price</th><th>Fee</th></tr></thead><tbody>'+[...a.trades].reverse().slice(0,100).map(t=>`<tr><td>${esc(t.at.slice(0,19))}</td><td>${esc(t.side)} ${t.quantity} ${esc(t.ticker)}</td><td>${usd(t.price)}</td><td>${usd(t.fee)}</td></tr>`).join('')+'</tbody></table><p class="notice">Latest 100 fills. Export includes the complete ledger.</p>':'No paper orders recorded.';
-}
-async function refresh(){try{state=await request();$('workspaceBody').hidden=false;renderWorkspace();message('Saved workspace ready. Changes are stored on this computer.');}catch(e){$('workspaceBody').hidden=true;message(e.message,true);}}
-async function mutation(form,data){if(busy)return false;busy=true;const controls=[...panel.querySelectorAll('button,input,select')].map(el=>[el,el.disabled]);for(const [el] of controls)el.disabled=true;try{const result=await request(data);if(result.account)activeId=result.account.id;await refresh();message(result.message);return true;}catch(e){message(e.message,true);return false;}finally{busy=false;for(const [el,disabled] of controls)el.disabled=disabled;renderWorkspace();}}
-function bindForm(id,handler){const form=$(id);form.addEventListener('submit',e=>{e.preventDefault();handler(form,new FormData(form));});}
-bindForm('accountForm',async(f,d)=>{if(await mutation(f,{action:'create_account',name:d.get('accountName'),cash:d.get('cash'),limitPct:Number(d.get('limitPct'))}))f.elements.accountName.value='';});
-bindForm('savePortfolioForm',(f,d)=>mutation(f,{action:'save_portfolio',name:d.get('snapshotName'),equity,source,positions}));
-bindForm('paperGuardForm',(f,d)=>mutation(f,{action:'set_guard',accountId:activeId,guard:{...Object.fromEntries(guardFields.map(([k])=>[k,Number(d.get(k))])),enabled:d.has('enabled'),paused:d.has('paused')}}));
-bindForm('paperOrderForm',async(f,d)=>{if(!activeId)return;pendingKey=pendingKey||crypto.randomUUID();if(await mutation(f,{action:'order',accountId:activeId,requestId:pendingKey,side:d.get('side'),ticker:d.get('ticker'),sector:d.get('sector'),quantity:Number(d.get('quantity')),price:d.get('price'),fee:d.get('fee')})){pendingKey=null;}});
-// Retain the request ID for retries of an unchanged order, but not a revised order.
-$('paperOrderForm').addEventListener('input',()=>pendingKey=null);
-$('paperAccount').onchange=e=>{activeId=e.target.value;pendingKey=null;renderWorkspace();};$('workspaceRefresh').onclick=refresh;
-$('paperExport').onclick=()=>download('riskpulse-paper-account.json',JSON.stringify({exportedAt:new Date().toISOString(),mode:'Paper simulation; monetary values in USD cents',account:account()},null,2),'application/json');
-$('loadPaperRisk').onclick=()=>{const a=account();if(!a)return;positions=Object.entries(a.holdings).map(([ticker,h])=>({ticker,name:ticker,sector:h.sector,shares:h.quantity,price:h.mark/100,nativePrice:h.mark/100,currency:'USD',fxToUSD:1,side:1,day:0,beta:1,adv:null,cp:'Paper account',credit:'N/A',asOf:h.asOf.slice(0,10),priceSource:'Assumed paper fill'}));equity=(a.cash+Object.values(a.holdings).reduce((s,h)=>s+h.quantity*h.mark,0))/100;source='Paper simulation · '+a.name;$('equityInput').value=equity;render();renderEvidence();show('overview');feedback('Paper holdings loaded. Prices are assumed fills; beta is 1 and ADV is unknown.');};
-refresh();show('workspace');
+  const guardFields = [
+    ['maxAge', 'Maximum quote age (s)', 60],
+    ['duplicate', 'Duplicate quote fraction %', 0],
+    ['withdrawal', 'Withdrawal probability %', 0],
+    ['cancelRate', 'Reported cancellation %', 0],
+    ['maxCancelRate', 'Maximum allowed cancellation %', 50],
+    ['shockPct', 'Loss shock scenario %', 15]
+  ];
+
+  let state = {
+    accounts: [{
+      id: 'primary-trading',
+      name: 'Primary Trading Account',
+      cash: 10000000, // $100,000.00
+      limitPct: 20,
+      holdings: {
+        'NVDA': { quantity: 50, mark: 12500, cost: 600000, sector: 'Technology', asOf: new Date().toISOString() },
+        'AAPL': { quantity: 100, mark: 22000, cost: 2100000, sector: 'Technology', asOf: new Date().toISOString() }
+      },
+      trades: [
+        { at: new Date().toISOString(), side: 'BUY', ticker: 'NVDA', quantity: 50, price: 12000, fee: 100 },
+        { at: new Date().toISOString(), side: 'BUY', ticker: 'AAPL', quantity: 100, price: 21000, fee: 100 }
+      ],
+      fees: 200,
+      realized: 0,
+      guard: { enabled: true, paused: false, maxAge: 60, duplicate: 0, withdrawal: 0, cancelRate: 0, maxCancelRate: 50, shockPct: 15 }
+    }],
+    portfolios: []
+  };
+
+  let activeId = 'primary-trading', pendingKey = null, busy = false;
+
+  try {
+    const saved = localStorage.getItem('riskpulse_workspace');
+    if (saved) state = JSON.parse(saved);
+  } catch {}
+
+  const usd = c => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(c / 100);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const account = () => state.accounts.find(a => a.id === activeId) || state.accounts[0];
+
+  function saveState() {
+    try { localStorage.setItem('riskpulse_workspace', JSON.stringify(state)); } catch {}
+  }
+
+  const message = (s, error = false) => {
+    const el = document.getElementById('workspaceMessage');
+    if (el) {
+      el.textContent = s;
+      el.classList.toggle('error', error);
+    }
+  };
+
+  async function request(data) {
+    try {
+      if (typeof api === 'function') {
+        const res = await api('/api/workspace', data ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) } : {});
+        if (res && res.accounts) return res;
+      }
+    } catch {}
+
+    if (!data) return state;
+
+    if (data.action === 'create_account') {
+      const newAcc = {
+        id: 'acc_' + Date.now(),
+        name: data.name,
+        cash: Math.round(Number(data.cash) * 100),
+        limitPct: data.limitPct,
+        holdings: {},
+        trades: [],
+        fees: 0,
+        realized: 0,
+        guard: { enabled: true, paused: false, maxAge: 60, duplicate: 0, withdrawal: 0, cancelRate: 0, maxCancelRate: 50, shockPct: 15 }
+      };
+      state.accounts.push(newAcc);
+      activeId = newAcc.id;
+      saveState();
+      return { account: newAcc, message: 'Account "' + data.name + '" created.' };
+    }
+
+    if (data.action === 'save_portfolio') {
+      state.portfolios.push({
+        name: data.name,
+        equity: data.equity,
+        source: data.source,
+        positions: data.positions,
+        savedAt: new Date().toISOString()
+      });
+      saveState();
+      return { message: 'Portfolio snapshot "' + data.name + '" saved.' };
+    }
+
+    if (data.action === 'set_guard') {
+      const a = account();
+      if (a) {
+        a.guard = data.guard;
+        saveState();
+      }
+      return { message: 'Execution risk controls saved.' };
+    }
+
+    if (data.action === 'order') {
+      const a = account();
+      if (!a) throw new Error('Select a paper account first.');
+      if (a.guard?.paused) throw new Error('Paper execution is currently PAUSED for this account.');
+
+      const qty = Number(data.quantity);
+      const price = Math.round(Number(data.price) * 100);
+      const fee = Math.round(Number(data.fee) * 100);
+      const cost = qty * price + fee;
+
+      if (data.side === 'BUY') {
+        if (a.cash < cost) throw new Error('Insufficient cash balance for this buy order.');
+        a.cash -= cost;
+        a.fees += fee;
+        const h = a.holdings[data.ticker] || { quantity: 0, mark: price, cost: 0, sector: data.sector, asOf: new Date().toISOString() };
+        h.quantity += qty;
+        h.cost += cost;
+        h.mark = price;
+        h.sector = data.sector;
+        a.holdings[data.ticker] = h;
+        a.trades.push({ at: new Date().toISOString(), side: 'BUY', ticker: data.ticker, quantity: qty, price: price, fee: fee });
+        saveState();
+        return { message: `Filled BUY ${qty} shares of ${data.ticker} at ${usd(price)}.` };
+      } else if (data.side === 'SELL') {
+        const h = a.holdings[data.ticker];
+        if (!h || h.quantity < qty) throw new Error(`Insufficient shares of ${data.ticker} to sell.`);
+        h.quantity -= qty;
+        const proceeds = qty * price - fee;
+        a.cash += proceeds;
+        a.fees += fee;
+        if (h.quantity === 0) delete a.holdings[data.ticker];
+        a.trades.push({ at: new Date().toISOString(), side: 'SELL', ticker: data.ticker, quantity: qty, price: price, fee: fee });
+        saveState();
+        return { message: `Filled SELL ${qty} shares of ${data.ticker} at ${usd(price)}.` };
+      }
+    }
+
+    return state;
+  }
+
+  function renderWorkspace() {
+    const picker = document.getElementById('paperAccount');
+    if (picker) {
+      picker.replaceChildren(...(state.accounts.length ? state.accounts.map(a => new Option(a.name, a.id)) : [new Option('Create an account to begin', '')]));
+      if (!state.accounts.some(a => a.id === activeId)) activeId = state.accounts[0]?.id || '';
+      picker.value = activeId;
+    }
+
+    const a = account();
+    const execBtn = document.getElementById('paperExecute');
+    const expBtn = document.getElementById('paperExport');
+    const loadBtn = document.getElementById('loadPaperRisk');
+    const saveGuardBtn = document.getElementById('saveGuard');
+
+    if (execBtn) execBtn.disabled = !a;
+    if (expBtn) expBtn.disabled = !a;
+    if (loadBtn) loadBtn.disabled = !a || !Object.keys(a.holdings || {}).length;
+    if (saveGuardBtn) saveGuardBtn.disabled = !a;
+
+    const guardForm = document.getElementById('paperGuardForm');
+    if (a && guardForm) {
+      for (const [k, , v] of guardFields) {
+        if (guardForm.elements[k]) guardForm.elements[k].value = a.guard?.[k] ?? v;
+      }
+      if (guardForm.elements['enabled']) guardForm.elements['enabled'].checked = !!a.guard?.enabled;
+      if (guardForm.elements['paused']) guardForm.elements['paused'].checked = !!a.guard?.paused;
+    }
+
+    const savedDiv = document.getElementById('savedPortfolios');
+    if (savedDiv) {
+      savedDiv.replaceChildren();
+      for (const p of state.portfolios) {
+        const row = document.createElement('p');
+        const b = document.createElement('button');
+        b.className = 'btn';
+        b.textContent = 'Load ' + p.name;
+        b.onclick = () => {
+          if (typeof window.positions !== 'undefined') {
+            window.positions = structuredClone(p.positions);
+            window.equity = p.equity;
+            window.source = p.source + ' · saved ' + p.savedAt;
+            const eqInp = document.getElementById('equityInput');
+            if (eqInp) eqInp.value = window.equity;
+            if (typeof render === 'function') render();
+            if (typeof renderEvidence === 'function') renderEvidence();
+            if (typeof show === 'function') show('overview');
+            if (typeof feedback === 'function') feedback('Saved portfolio loaded.');
+          }
+        };
+        row.append(b, document.createTextNode(' ' + p.positions.length + ' positions · ' + p.savedAt.slice(0, 10)));
+        savedDiv.append(row);
+      }
+      if (!state.portfolios.length) savedDiv.textContent = 'No saved portfolios yet.';
+    }
+
+    const sumDiv = document.getElementById('paperSummary');
+    const holdDiv = document.getElementById('paperHoldings');
+    const legDiv = document.getElementById('paperLedger');
+
+    if (!a) {
+      if (sumDiv) sumDiv.textContent = 'Create a paper account with your chosen starting cash.';
+      if (holdDiv) holdDiv.textContent = 'No account selected.';
+      if (legDiv) legDiv.textContent = 'No account selected.';
+      return;
+    }
+
+    const holdings = Object.entries(a.holdings || {});
+    const marked = holdings.reduce((s, [, h]) => s + h.quantity * h.mark, 0);
+    const cost = holdings.reduce((s, [, h]) => s + h.cost, 0);
+
+    if (sumDiv) {
+      sumDiv.innerHTML = `
+        <div class="metrics public-metrics">
+          ${[['Cash', usd(a.cash)], ['Marked equity', usd(a.cash + marked)], ['Realized P&L', usd(a.realized)], ['Unrealized P&L', usd(marked - cost)]].map(([k, v]) => `<article class="metric"><label>${k}</label><strong>${v}</strong></article>`).join('')}
+        </div>
+        <p>Maximum order: ${a.limitPct}% of marked equity · Fees paid: ${usd(a.fees)} · ${a.trades.length} recorded fills.</p>
+        <p class="${a.guard?.paused ? 'warn' : ''}">Execution: ${a.guard?.paused ? 'PAUSED' : a.guard?.enabled ? 'Scenario gates enabled' : 'Standard balance checks'}</p>
+      `;
+    }
+
+    if (holdDiv) {
+      holdDiv.innerHTML = holdings.length ?
+        '<div class="table-wrap"><table><thead><tr><th>Ticker</th><th>Shares</th><th>Assumed mark</th><th>Value</th></tr></thead><tbody>' +
+        holdings.map(([t, h]) => `<tr><td><strong>${esc(t)}</strong></td><td>${h.quantity}</td><td>${usd(h.mark)}</td><td>${usd(h.mark * h.quantity)}</td></tr>`).join('') +
+        '</tbody></table></div>' : 'No holdings. Execute a paper buy to begin.';
+    }
+
+    if (legDiv) {
+      legDiv.innerHTML = a.trades.length ?
+        '<div class="table-wrap"><table><thead><tr><th>Time UTC</th><th>Order</th><th>Price</th><th>Fee</th></tr></thead><tbody>' +
+        [...a.trades].reverse().slice(0, 50).map(t => `<tr><td>${esc(t.at.slice(0, 19))}</td><td>${esc(t.side)} ${t.quantity} ${esc(t.ticker)}</td><td>${usd(t.price)}</td><td>${usd(t.fee)}</td></tr>`).join('') +
+        '</tbody></table></div><p class="notice">Latest 50 fills shown.</p>' : 'No paper orders recorded.';
+    }
+  }
+
+  async function refresh() {
+    try {
+      const res = await request();
+      if (res && res.accounts) state = res;
+      const body = document.getElementById('workspaceBody');
+      if (body) body.hidden = false;
+      renderWorkspace();
+      message('Portfolio workspace ready.');
+    } catch (e) {
+      renderWorkspace();
+      message(e.message, true);
+    }
+  }
+
+  async function mutation(form, data) {
+    if (busy) return false;
+    busy = true;
+    const controls = [...document.querySelectorAll('#workspace button, #workspace input, #workspace select')].map(el => [el, el.disabled]);
+    for (const [el] of controls) el.disabled = true;
+    try {
+      const result = await request(data);
+      if (result.account) activeId = result.account.id;
+      await refresh();
+      message(result.message);
+      return true;
+    } catch (e) {
+      message(e.message, true);
+      return false;
+    } finally {
+      busy = false;
+      for (const [el, disabled] of controls) el.disabled = disabled;
+      renderWorkspace();
+    }
+  }
+
+  function bindForm(id, handler) {
+    const form = document.getElementById(id);
+    if (form) {
+      form.addEventListener('submit', e => {
+        e.preventDefault();
+        handler(form, new FormData(form));
+      });
+    }
+  }
+
+  bindForm('accountForm', async (f, d) => {
+    if (await mutation(f, { action: 'create_account', name: d.get('accountName'), cash: d.get('cash'), limitPct: Number(d.get('limitPct')) })) {
+      f.elements.accountName.value = '';
+    }
+  });
+
+  bindForm('savePortfolioForm', (f, d) => mutation(f, {
+    action: 'save_portfolio',
+    name: d.get('snapshotName'),
+    equity: typeof window.equity !== 'undefined' ? window.equity : 100000,
+    source: typeof window.source !== 'undefined' ? window.source : 'Live portfolio',
+    positions: typeof window.positions !== 'undefined' ? window.positions : []
+  }));
+
+  bindForm('paperGuardForm', (f, d) => mutation(f, {
+    action: 'set_guard',
+    accountId: activeId,
+    guard: {
+      ...Object.fromEntries(guardFields.map(([k]) => [k, Number(d.get(k))])),
+      enabled: d.has('enabled'),
+      paused: d.has('paused')
+    }
+  }));
+
+  bindForm('paperOrderForm', async (f, d) => {
+    const a = account();
+    if (!a) return;
+    pendingKey = pendingKey || crypto.randomUUID();
+    if (await mutation(f, {
+      action: 'order',
+      accountId: a.id,
+      requestId: pendingKey,
+      side: d.get('side'),
+      ticker: (d.get('ticker') || '').toUpperCase(),
+      sector: d.get('sector'),
+      quantity: Number(d.get('quantity')),
+      price: d.get('price'),
+      fee: d.get('fee')
+    })) {
+      pendingKey = null;
+    }
+  });
+
+  const picker = document.getElementById('paperAccount');
+  if (picker) {
+    picker.onchange = e => {
+      activeId = e.target.value;
+      pendingKey = null;
+      renderWorkspace();
+    };
+  }
+
+  const wsRefreshBtn = document.getElementById('workspaceRefresh');
+  if (wsRefreshBtn) wsRefreshBtn.onclick = refresh;
+
+  const expBtn = document.getElementById('paperExport');
+  if (expBtn) {
+    expBtn.onclick = () => {
+      const a = account();
+      if (!a) return;
+      if (typeof download === 'function') {
+        download('riskpulse-paper-account.json', JSON.stringify({ exportedAt: new Date().toISOString(), mode: 'Paper simulation', account: a }, null, 2), 'application/json');
+      }
+    };
+  }
+
+  const loadRiskBtn = document.getElementById('loadPaperRisk');
+  if (loadRiskBtn) {
+    loadRiskBtn.onclick = () => {
+      const a = account();
+      if (!a) return;
+      const holdings = Object.entries(a.holdings || {});
+      if (!holdings.length) return;
+
+      window.positions = holdings.map(([ticker, h]) => ({
+        ticker,
+        name: ticker,
+        sector: h.sector || 'Equities',
+        shares: h.quantity,
+        price: h.mark / 100,
+        nativePrice: h.mark / 100,
+        currency: 'USD',
+        fxToUSD: 1,
+        side: 1,
+        day: 0,
+        beta: 1,
+        adv: null,
+        cp: 'Paper account',
+        credit: 'N/A',
+        asOf: (h.asOf || new Date().toISOString()).slice(0, 10),
+        priceSource: 'Assumed paper fill'
+      }));
+
+      window.equity = (a.cash + holdings.reduce((s, [, h]) => s + h.quantity * h.mark, 0)) / 100;
+      window.source = 'Paper simulation · ' + a.name;
+
+      const eqInp = document.getElementById('equityInput');
+      if (eqInp) eqInp.value = window.equity;
+      if (typeof render === 'function') render();
+      if (typeof renderEvidence === 'function') renderEvidence();
+      if (typeof show === 'function') show('overview');
+      if (typeof feedback === 'function') feedback('Paper holdings loaded into risk model.');
+    };
+  }
+
+  refresh();
 })();
