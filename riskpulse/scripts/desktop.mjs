@@ -32,7 +32,7 @@ const server=http.createServer(async(req,res)=>{
    try{const data=await read(8192);const result=await auth[path.endsWith('signup')?'signup':'signin'](data);if(path.endsWith('signin'))attempts.delete(key);return send({user:result.user},200,{'Set-Cookie':result.cookie});}
    catch(e){return send({error:e instanceof SyntaxError?'Invalid request.':e.message},400);}
   }
-  const publicAsset=['/','/index.html','/landing.css','/landing.js'].includes(path);
+  const publicAsset=['/','/index.html','/landing.css','/landing.js','/venues.json','/public.json','/api/venues','/api/public','/api/status'].includes(path);
   if(!user&&!publicAsset){
    if(path.startsWith('/api/'))return send({error:'Please sign in to continue.'},401);
    res.writeHead(303,{Location:'/?auth=signin','Cache-Control':'no-store'});return res.end();
