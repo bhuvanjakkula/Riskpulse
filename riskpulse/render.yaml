@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: riskpulse
+    name: riskpulse-intelligence
     runtime: node
     plan: free
     buildCommand: npm run build
