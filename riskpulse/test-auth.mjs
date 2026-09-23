@@ -1,0 +1,56 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {spawn} from 'node:child_process';
+import {mkdtemp,readFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import {join} from 'node:path';
+import {createAuth} from './scripts/auth.mjs';
+import {DatabaseSync} from 'node:sqlite';
+const pause=ms=>new Promise(r=>setTimeout(r,ms));
+test('identity hashes passwords, persists sessions, rejects duplicates, and expires sessions',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'riskpulse-auth-test-')),file=join(dir,'identity.sqlite3');
+ let auth=createAuth(file);
+ const input={email:'Test@Example.com',mobile:'+14155552671',password:'Test-only-password-2026!',plan:'professional'};
+ const signed=await auth.signup(input);const req={headers:{cookie:signed.cookie.split(';')[0]}};
+ assert.equal(auth.session(req).email,'test@example.com');
+ assert.match(signed.cookie,/HttpOnly; SameSite=Strict/);
+ await assert.rejects(auth.signup(input),/Unable to create/);
+ await assert.rejects(auth.signin({...input,password:'incorrect'}),/incorrect/);
+ await assert.rejects(auth.signup({...input,email:'invalid'}),/email/);
+ await assert.rejects(auth.signup({...input,mobile:'123'}),/country/);
+ await assert.rejects(auth.signup({...input,password:'short'}),/12/);
+ await assert.rejects(auth.signup({...input,plan:'admin'}),/plan/);
+ auth.close();auth=createAuth(file);assert.equal(auth.session(req).email,'test@example.com');
+ const db=new DatabaseSync(file);const saved=db.prepare('SELECT * FROM users').get();assert.notEqual(saved.password_hash,input.password);assert.equal(saved.password_hash.length,128);
+ db.prepare('UPDATE sessions SET expires_at=0').run();assert.equal(auth.session(req),null);
+ const again=await auth.signin(input);const req2={headers:{cookie:again.cookie.split(';')[0]}};assert.ok(auth.session(req2));auth.signout(req2);assert.equal(auth.session(req2),null);db.close();auth.close();
+});
+test('HTTP account flow protects dashboard and APIs; plan selection does not enable billing',async()=>{
+ const dir=await mkdtemp(join(tmpdir(),'riskpulse-http-test-'));
+ const proc=spawn(process.execPath,['scripts/desktop.mjs'],{cwd:process.cwd(),env:{...process.env,RISK_PORT:'4193',RISK_SKIP_BRIDGE:'1',RISK_DATA_DIR:dir},stdio:'pipe',windowsHide:true});
+ const base='http://127.0.0.1:4193';let logs='';proc.stderr.on('data',c=>logs+=c);
+ try{
+  let ready=false;for(let i=0;i<80;i++){try{if((await fetch(base)).ok){ready=true;break;}}catch{}await pause(100);}assert.ok(ready,logs);
+  const landing=await (await fetch(base)).text();assert.match(landing,/id="mobile"/);assert.doesNotMatch(landing,/\$199/);assert.equal((await fetch(base+'/plans',{redirect:'manual'})).status,303);assert.equal((await fetch(base+'/api/plan',{method:'POST',headers:{Origin:base,'Content-Type':'application/json'},body:JSON.stringify({plan:undefined})})).status,401);
+  assert.equal((await fetch(base+'/app',{redirect:'manual'})).status,303);
+  assert.equal((await fetch(base+'/dashboard.html',{redirect:'manual'})).status,303);
+  assert.equal((await fetch(base+'/api/workspace')).status,401);
+  const post=(path,data,cookie='',origin=base)=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:origin,Cookie:cookie},body:JSON.stringify(data)});
+  const data={email:'qa@example.com',mobile:'+14155552671',password:'Test-only-password-2026!'};
+  assert.equal((await post('/api/auth/signup',data,'','http://evil.example')).status,403);
+  assert.equal((await post('/api/auth/signup',{...data,password:'short'})).status,400);
+  const signup=await post('/api/auth/signup',data);assert.equal(signup.status,200);const cookie=signup.headers.get('set-cookie').split(';')[0];const result=await signup.json();assert.equal(result.user.plan,'pending');assert.equal(result.user.mobile,undefined);assert.equal(result.user.password_hash,undefined);
+  assert.equal((await fetch(base+'/app',{headers:{Cookie:cookie}})).status,200);
+  const plans=await (await fetch(base+'/plans',{headers:{Cookie:cookie}})).text();assert.match(plans,/\$199/);assert.match(plans,/\$499/);assert.match(plans,/\$3,000/);
+  assert.equal((await post('/api/plan',{plan:'invalid'},cookie)).status,400);
+  const selected=await post('/api/plan',{plan:'business'},cookie);assert.equal(selected.status,200);assert.equal((await selected.json()).subscriptionActive,false);
+  assert.equal((await fetch(base+'/missing',{headers:{Cookie:cookie}})).status,404);
+  const me=await (await fetch(base+'/api/auth/me',{headers:{Cookie:cookie}})).json();assert.equal(me.user.email,data.email);
+  assert.equal((await post('/api/auth/signin',{...data,password:'wrong'})).status,400);
+  assert.equal((await post('/api/auth/signout',{},cookie)).status,200);
+  assert.equal((await fetch(base+'/app',{headers:{Cookie:cookie},redirect:'manual'})).status,303);
+  assert.equal((await post('/api/auth/signin',data)).status,200);
+  for(let i=0;i<20;i++)await post('/api/auth/signin',{...data,password:'wrong'});
+  assert.equal((await post('/api/auth/signin',data)).status,429);
+ }finally{proc.kill();}
+});

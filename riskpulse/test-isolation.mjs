@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+const base='http://127.0.0.1:4183';
+const post=(path,data,cookie='',extra={})=>fetch(base+path,{method:'POST',headers:{'Content-Type':'application/json',Origin:base,Cookie:cookie,...extra},body:JSON.stringify(data)});
+const suffix=Date.now();
+const a=await post('/api/auth/signup',{email:`isolation-a-${suffix}@example.com`,mobile:'+14155552671',password:'Test-only-isolation-2026',plan:'professional'});
+const b=await post('/api/auth/signup',{email:`isolation-b-${suffix}@example.com`,mobile:'+14155552671',password:'Test-only-isolation-2026',plan:'business'});
+assert.equal(a.status,200);assert.equal(b.status,200);
+const cookieA=a.headers.get('set-cookie').split(';')[0],cookieB=b.headers.get('set-cookie').split(';')[0];
+const userA=(await a.json()).user;
+assert.equal((await post('/api/workspace',{action:'create_account',name:'Private QA account',cash:1000},cookieA)).status,200);
+const snapshot=async(cookie,extra={})=>(await fetch(base+'/api/workspace',{headers:{Cookie:cookie,...extra}})).json();
+assert.equal((await snapshot(cookieA)).accounts.length,1);
+assert.equal((await snapshot(cookieB)).accounts.length,0);
+assert.equal((await snapshot(cookieB,{'X-RiskPulse-User':userA.id})).accounts.length,0);
+await post('/api/auth/signout',{},cookieA);await post('/api/auth/signout',{},cookieB);
+console.log('PASS: separate account storage and rejection of spoofed user identity.');

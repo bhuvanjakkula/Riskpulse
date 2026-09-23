@@ -1,0 +1,14 @@
+{
+  "name": "riskpulse",
+  "version": "3.0.0",
+  "private": true,
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "dev": "node scripts/dev.mjs",
+    "test": "node --test test-risk.cjs test-data.mjs test-controls.cjs",
+    "desktop": "node scripts/desktop.mjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

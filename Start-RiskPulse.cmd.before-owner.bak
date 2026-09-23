@@ -1,0 +1,9 @@
+@echo off
+cd /d "%~dp0riskpulse"
+call npm run build
+if errorlevel 1 (
+  pause
+  exit /b 1
+)
+node scripts/desktop.mjs
+pause

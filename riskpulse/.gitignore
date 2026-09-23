@@ -1,0 +1,9 @@
+data/
+node_modules/
+.env
+*.tar.gz
+__pycache__/
+lseg-data.config.json
+.venv/
+*.pyc
+*.zip
