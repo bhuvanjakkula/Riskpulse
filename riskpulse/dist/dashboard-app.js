@@ -42,4 +42,4 @@ if(document.modelContext?.registerTool){
  Promise.resolve(document.modelContext.registerTool({name:'run_portfolio_stress',title:'Run portfolio stress',description:'Run a deterministic percentage shock against the whole portfolio or one sector and update the visible stress laboratory.',inputSchema:{type:'object',properties:{target:{type:'string',enum:['all','Technology','Financials','Energy']},move_pct:{type:'number',minimum:-30,maximum:30}},required:['target','move_pct'],additionalProperties:false},annotations:{readOnlyHint:false,untrustedContentHint:false},execute(input){if(!input||!['all','Technology','Financials','Energy'].includes(input.target)||typeof input.move_pct!=='number')throw new Error('Invalid stress input');document.getElementById('shockTarget').value=input.target;const supported=[-5,-10,-15,-20];const selected=supported.includes(input.move_pct)?input.move_pct:-10;document.getElementById('shockMove').value=String(selected);renderStress();show('stress');return{target:input.target,move_pct:selected,estimated_impact:document.getElementById('customLoss').textContent}}},{signal:lifecycle.signal})).catch(()=>{});
 }
 render();
-
+

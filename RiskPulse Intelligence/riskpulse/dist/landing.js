@@ -1,6 +1,6 @@
 const dialog=document.getElementById('authDialog'),form=document.getElementById('authForm');
 let mode='signup',busy=false,localIdentity=null;
-const ownerSignin=()=>document.getElementById('email').value.trim().toLowerCase()==='bhuvanjakkula@gmail.com'||(localIdentity?.localOwner&&document.getElementById('email').value.trim().toLowerCase()===localIdentity.email);
+const ownerSignin=()=>localIdentity?.localOwner&&document.getElementById('email').value.trim().toLowerCase()===localIdentity.email;
 function updatePassword(){const email=document.getElementById('email');email.value=email.value.replace(/\\@/g,'@');const password=document.getElementById('password');const skip=Boolean(ownerSignin());password.required=!skip;password.disabled=skip;password.closest('label').hidden=skip;const mobile=document.getElementById('mobile');mobile.required=mode==='signup'&&!skip;mobile.disabled=mode!=='signup'||skip;document.getElementById('mobileField').hidden=mobile.disabled;if(!busy)document.getElementById('submitAuth').textContent=skip||mode==='signin'?'Sign in ↗':'Create account ↗';}
 document.getElementById('email').addEventListener('input',updatePassword);
 document.getElementById('email').addEventListener('change',updatePassword);
@@ -25,7 +25,7 @@ document.getElementById('signupTab').onclick=()=>{if(!busy)setMode('signup');};d
 document.getElementById('togglePassword').onclick=event=>{const input=document.getElementById('password'),show=input.type==='password';input.type=show?'text':'password';event.target.textContent=show?'Hide':'Show';event.target.setAttribute('aria-label',show?'Hide password':'Show password');};
 form.addEventListener('submit',async event=>{
  event.preventDefault();if(busy)return;
- if(ownerSignin()){try{localStorage.setItem('riskpulse_owner','bhuvanjakkula@gmail.com');}catch(_){}location.assign('/plans');return;}
+ if(ownerSignin()){location.assign('/app');return;}
  const data=Object.fromEntries(new FormData(form));
  if(mode==='signup'&&!/^\+[1-9]\d{7,14}$/.test(data.mobile.replace(/[\s()-]/g,''))){document.getElementById('formError').textContent='Enter a mobile number with country code, such as +14155552671.';return;}
  busy=true;const controls=[...dialog.querySelectorAll('button')];controls.forEach(button=>button.disabled=true);document.getElementById('submitAuth').textContent=mode==='signup'?'Creating account…':'Signing in…';document.getElementById('formError').textContent='';
