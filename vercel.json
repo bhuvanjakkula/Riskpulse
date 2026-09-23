@@ -3,18 +3,22 @@
   "buildCommand": "cd riskpulse && node scripts/build.mjs",
   "outputDirectory": "riskpulse/dist",
   "cleanUrls": true,
-  "rewrites": [
+  "routes": [
     {
-      "source": "/app",
-      "destination": "/dashboard.html"
+      "src": "/app",
+      "dest": "/app.html"
     },
     {
-      "source": "/plans",
-      "destination": "/plans.html"
+      "src": "/plans",
+      "dest": "/plans.html"
     },
     {
-      "source": "/(.*)",
-      "destination": "/$1"
+      "src": "/dashboard",
+      "dest": "/dashboard.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
     }
   ]
 }

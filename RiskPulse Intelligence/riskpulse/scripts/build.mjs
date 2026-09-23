@@ -1,4 +1,5 @@
-import {readFile,mkdir,writeFile,readdir} from 'node:fs/promises';
+import {readFile,mkdir,writeFile,readdir,copyFile} from 'node:fs/promises';
+try { await copyFile('dist/dashboard.html', 'dist/app.html'); } catch(_) {}
 const assets={};for(const name of await readdir('dist')){if(!/\.(html|css|js)$/.test(name))continue;assets['/'+name]={body:await readFile('dist/'+name,'utf8'),type:name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.css')?'text/css; charset=utf-8':'text/javascript; charset=utf-8'};}
 const service=(await readFile('src/data-service.mjs','utf8')).replaceAll('export ','');
 const worker=(await readFile('src/worker.mjs','utf8')).replace(/import[^\n]+\n/,'');
