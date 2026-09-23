@@ -1,0 +1,14 @@
+{
+  "name": "riskpulse-intelligence",
+  "version": "3.0.0",
+  "private": true,
+  "scripts": {
+    "build": "cd riskpulse && node scripts/build.mjs",
+    "start": "cd riskpulse && node scripts/dev.mjs",
+    "dev": "cd riskpulse && node scripts/dev.mjs",
+    "test": "cd riskpulse && node --test test-risk.cjs test-data.mjs test-controls.cjs"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
