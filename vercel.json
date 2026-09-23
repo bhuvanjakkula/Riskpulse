@@ -1,10 +1,22 @@
 {
   "version": 2,
-  "buildCommand": "npm run build",
-  "rewrites": [
+  "cleanUrls": true,
+  "routes": [
     {
-      "source": "/(.*)",
-      "destination": "/api/index"
+      "src": "/api/(.*)",
+      "dest": "/api/index.js"
+    },
+    {
+      "src": "/plans",
+      "dest": "/plans.html"
+    },
+    {
+      "src": "/app",
+      "dest": "/app.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/$1"
     }
   ]
 }

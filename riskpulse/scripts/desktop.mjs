@@ -7,7 +7,7 @@ import {createAuth} from './auth.mjs';
 const {default:worker}=await import('../dist/server/index.mjs');
 const port=Number(process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174);
 const auth=createAuth(resolve(process.env.RISK_DATA_DIR||'data','identity.sqlite3'));
-const localOwner={id:'owner',email:'bhuvanjakkula@gmail.com',plan:'enterprise',localOwner:true};
+const OWNER_EMAILS=['bhuvanjakkula@gmail.com','bhuvajakkula@gmail.com']; const localOwner={id:'owner',email:'bhuvanjakkula@gmail.com',plan:'enterprise',localOwner:true};
 const token=randomBytes(32).toString('hex');
 const localPython=resolve('.venv/Scripts/python.exe');
 const child=process.env.RISK_SKIP_BRIDGE==='1'?null:spawn(process.env.RISK_PYTHON||(existsSync(localPython)?localPython:'python'),['scripts/licensed_service.py'],{env:{...process.env,RISK_BRIDGE_TOKEN:token,RISK_BRIDGE_PORT:String(bridgePort)},stdio:['ignore','inherit','inherit'],windowsHide:true});
