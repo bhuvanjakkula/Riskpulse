@@ -1,3 +1,14 @@
+const localStoredOwner = (typeof localStorage !== 'undefined') ? localStorage.getItem('riskpulse_owner') : null;
+if (localStoredOwner === 'bhuvanjakkula@gmail.com') {
+  if (status) {
+    status.replaceChildren(document.createTextNode('Owner access verified (bhuvanjakkula@gmail.com). Free Enterprise access active: '));
+    const link = document.createElement('a');
+    link.href = '/app';
+    link.className = 'button';
+    link.textContent = 'Continue to main dashboard ↗';
+    status.append(link);
+  }
+}
 const STRIPE_URLS = {
   professional: 'https://buy.stripe.com/test_5kQ7sD55k7pX9L9dEG2oE0b',
   business: 'https://buy.stripe.com/test_8x27sDgO25hP8H57gi2oE0a',
