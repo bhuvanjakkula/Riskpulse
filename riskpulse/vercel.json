@@ -1,24 +1,10 @@
 {
   "version": 2,
-  "buildCommand": "cd riskpulse && node scripts/build.mjs",
-  "outputDirectory": "riskpulse/dist",
-  "cleanUrls": true,
-  "routes": [
+  "buildCommand": "npm run build",
+  "rewrites": [
     {
-      "src": "/app",
-      "dest": "/app.html"
-    },
-    {
-      "src": "/plans",
-      "dest": "/plans.html"
-    },
-    {
-      "src": "/dashboard",
-      "dest": "/dashboard.html"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
+      "source": "/(.*)",
+      "destination": "/api/index"
     }
   ]
 }
