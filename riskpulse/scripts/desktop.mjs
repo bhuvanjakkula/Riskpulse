@@ -5,9 +5,9 @@ import {spawn} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
 import {createAuth} from './auth.mjs';
 const {default:worker}=await import('../dist/server/index.mjs');
-const port=Number(process.env.PORT||process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174),host=process.env.HOST||'0.0.0.0';
+const port=Number(process.env.RISK_PORT||4173),bridgePort=Number(process.env.RISK_BRIDGE_PORT||4174);
 const auth=createAuth(resolve(process.env.RISK_DATA_DIR||'data','identity.sqlite3'));
-const localOwner=null;
+const localOwner=process.env.RISK_LOCAL_OWNER==='1'?auth.localOwner('bhuvanjakkula@gmail.com'):null;
 const token=randomBytes(32).toString('hex');
 const localPython=resolve('.venv/Scripts/python.exe');
 const child=process.env.RISK_SKIP_BRIDGE==='1'?null:spawn(process.env.RISK_PYTHON||(existsSync(localPython)?localPython:'python'),['scripts/licensed_service.py'],{env:{...process.env,RISK_BRIDGE_TOKEN:token,RISK_BRIDGE_PORT:String(bridgePort)},stdio:['ignore','inherit','inherit'],windowsHide:true});
@@ -53,6 +53,6 @@ const server=http.createServer(async(req,res)=>{
   res.end(Buffer.from(await response.arrayBuffer()));
  }catch{return send({error:'Service unavailable. Please try again.'},503);}
 });
-server.listen(port,host,()=>console.log(`RiskPulse desktop: http://${host}:${port}`));
+server.listen(port,'127.0.0.1',()=>console.log(`RiskPulse desktop: http://127.0.0.1:${port}`));
 const stop=()=>{child?.kill();server.close();auth.close();process.exit();};
 process.on('SIGINT',stop);process.on('SIGTERM',stop);process.on('exit',()=>child?.kill());

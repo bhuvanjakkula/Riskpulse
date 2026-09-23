@@ -1,30 +1,9 @@
-const OWNER_EMAILS = ['bhuvanjakkula@gmail.com', 'bhuvajakkula@gmail.com'];
-const isOwnerEmail = (e) => OWNER_EMAILS.includes((e || '').trim().toLowerCase());
-const getStoredUser = () => { try { return JSON.parse(localStorage.getItem('riskpulse_user')); } catch { return null; } };
-const saveUser = (u) => { try { localStorage.setItem('riskpulse_user', JSON.stringify(u)); } catch {} };
-
 const dialog=document.getElementById('authDialog'),form=document.getElementById('authForm');
-let mode='signup',busy=false,localIdentity=getStoredUser();
-
-const ownerSignin=()=>isOwnerEmail(document.getElementById('email').value) || (localIdentity?.localOwner && isOwnerEmail(localIdentity.email));
-
-function updatePassword(){
-  const email=document.getElementById('email');
-  email.value=email.value.replace(/\\@/g,'@');
-  const password=document.getElementById('password');
-  const skip=Boolean(ownerSignin());
-  password.required=!skip;
-  password.disabled=skip;
-  password.closest('label').hidden=skip;
-  const mobile=document.getElementById('mobile');
-  mobile.required=mode==='signup'&&!skip;
-  mobile.disabled=mode!=='signup'||skip;
-  document.getElementById('mobileField').hidden=mobile.disabled;
-  if(!busy)document.getElementById('submitAuth').textContent=skip||mode==='signin'?'Sign in ↗':'Create account ↗';
-}
+let mode='signup',busy=false,localIdentity=null;
+const ownerSignin=()=>localIdentity?.localOwner&&document.getElementById('email').value.trim().toLowerCase()===localIdentity.email;
+function updatePassword(){const email=document.getElementById('email');email.value=email.value.replace(/\\@/g,'@');const password=document.getElementById('password');const skip=Boolean(ownerSignin());password.required=!skip;password.disabled=skip;password.closest('label').hidden=skip;const mobile=document.getElementById('mobile');mobile.required=mode==='signup'&&!skip;mobile.disabled=mode!=='signup'||skip;document.getElementById('mobileField').hidden=mobile.disabled;if(!busy)document.getElementById('submitAuth').textContent=skip||mode==='signin'?'Sign in ↗':'Create account ↗';}
 document.getElementById('email').addEventListener('input',updatePassword);
 document.getElementById('email').addEventListener('change',updatePassword);
-
 function setMode(next){
  if(busy)return;
  mode=next;const signup=mode==='signup';
@@ -44,53 +23,16 @@ function openAuth(next,plan){if(busy)return;setMode(next);dialog.scrollIntoView(
 document.querySelectorAll('[data-auth]').forEach(button=>button.addEventListener('click',()=>openAuth(button.dataset.auth,button.dataset.plan)));
 document.getElementById('signupTab').onclick=()=>{if(!busy)setMode('signup');};document.getElementById('signinTab').onclick=()=>{if(!busy)setMode('signin');};
 document.getElementById('togglePassword').onclick=event=>{const input=document.getElementById('password'),show=input.type==='password';input.type=show?'text':'password';event.target.textContent=show?'Hide':'Show';event.target.setAttribute('aria-label',show?'Hide password':'Show password');};
-
 form.addEventListener('submit',async event=>{
  event.preventDefault();if(busy)return;
- const email=document.getElementById('email').value.trim().toLowerCase();
- if(isOwnerEmail(email)){
-   const ownerUser={id:'owner',email:email,plan:'enterprise',localOwner:true};
-   saveUser(ownerUser);
-   location.assign('/plans');
-   return;
- }
+ if(ownerSignin()){location.assign('/app');return;}
  const data=Object.fromEntries(new FormData(form));
- if(mode==='signup'&&!/^\+[1-9]\d{7,14}$/.test((data.mobile||'').replace(/[\s()-]/g,''))){document.getElementById('formError').textContent='Enter a mobile number with country code, such as +14155552671.';return;}
+ if(mode==='signup'&&!/^\+[1-9]\d{7,14}$/.test(data.mobile.replace(/[\s()-]/g,''))){document.getElementById('formError').textContent='Enter a mobile number with country code, such as +14155552671.';return;}
  busy=true;const controls=[...dialog.querySelectorAll('button')];controls.forEach(button=>button.disabled=true);document.getElementById('submitAuth').textContent=mode==='signup'?'Creating account…':'Signing in…';document.getElementById('formError').textContent='';
- try{
-   const response=await fetch('/api/auth/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});
-   if(response.ok){
-     const result=await response.json();
-     if(result.user) saveUser(result.user);
-   } else {
-     saveUser({id:'user_'+Date.now(),email:data.email,plan:'pending',localOwner:false});
-   }
-   location.assign('/plans');
- }catch(error){
-   saveUser({id:'user_'+Date.now(),email:data.email,plan:'pending',localOwner:false});
-   location.assign('/plans');
- }finally{
-   busy=false;controls.forEach(button=>button.disabled=false);document.getElementById('mobile').disabled=mode!=='signup';document.getElementById('submitAuth').textContent=mode==='signup'?'Create account ↗':'Sign in ↗';
- }
+ try{const response=await fetch('/api/auth/'+mode,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data)});const result=await response.json();if(!response.ok)throw new Error(result.error||'Unable to continue. Please try again.');location.assign('/plans');}
+ catch(error){document.getElementById('formError').textContent=error.message==='Failed to fetch'?'Unable to reach RiskPulse. Check that the local application is running.':error.message;}
+ finally{busy=false;controls.forEach(button=>button.disabled=false);document.getElementById('mobile').disabled=mode!=='signup';document.getElementById('submitAuth').textContent=mode==='signup'?'Create account ↗':'Sign in ↗';}
 });
 setMode('signup');
 if(new URLSearchParams(location.search).get('auth')==='signin')openAuth('signin');
-
-const activeUser=getStoredUser();
-if(activeUser){
-  const button=document.querySelector('.header [data-auth="signin"]');
-  if(button){
-    const link=document.createElement('a');link.href='/app';link.textContent='Open dashboard ↗';button.replaceWith(link);
-  }
-}
-fetch('/api/auth/me').then(r=>r.json()).then(({user})=>{
-  if(user){
-    localIdentity=user;
-    saveUser(user);
-    updatePassword();
-    const button=document.querySelector('.header [data-auth="signin"]');
-    if(button){
-      const link=document.createElement('a');link.href='/app';link.textContent='Open dashboard ↗';button.replaceWith(link);
-    }
-  }
-}).catch(()=>{});
+fetch('/api/auth/me').then(r=>r.json()).then(({user})=>{localIdentity=user;updatePassword();if(user){const button=document.querySelector('.header [data-auth="signin"]');const link=document.createElement('a');link.href='/app';link.textContent='Open dashboard ↗';button.replaceWith(link);}}).catch(()=>{});

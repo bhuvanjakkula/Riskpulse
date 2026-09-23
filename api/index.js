@@ -1,4 +1,26 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const OWNER_EMAILS = ['bhuvanjakkula@gmail.com', 'bhuvajakkula@gmail.com'];
+
+let venuesData = null;
+let publicData = null;
+
+try {
+  const vPath = path.resolve(__dirname, '..', 'dist', 'venues.json');
+  if (fs.existsSync(vPath)) {
+    venuesData = JSON.parse(fs.readFileSync(vPath, 'utf8'));
+  }
+} catch {}
+
+try {
+  const pPath = path.resolve(__dirname, '..', 'dist', 'public.json');
+  if (fs.existsSync(pPath)) {
+    publicData = JSON.parse(fs.readFileSync(pPath, 'utf8'));
+  }
+} catch {}
 
 export default async function handler(req, res) {
   try {
@@ -12,6 +34,20 @@ export default async function handler(req, res) {
     if (req.method === 'OPTIONS') {
       res.statusCode = 200;
       res.end();
+      return;
+    }
+
+    if (pathname === '/api/venues') {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(venuesData || { venues: [] }));
+      return;
+    }
+
+    if (pathname === '/api/public') {
+      res.statusCode = 200;
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify(publicData || { feeds: {} }));
       return;
     }
 
@@ -33,9 +69,7 @@ export default async function handler(req, res) {
       let body = {};
       if (req.method === 'POST') {
         const buffers = [];
-        for await (const chunk of req) {
-          buffers.push(chunk);
-        }
+        for await (const chunk of req) buffers.push(chunk);
         try {
           body = JSON.parse(Buffer.concat(buffers).toString() || '{}');
         } catch {}
@@ -69,9 +103,7 @@ export default async function handler(req, res) {
       let body = {};
       if (req.method === 'POST') {
         const buffers = [];
-        for await (const chunk of req) {
-          buffers.push(chunk);
-        }
+        for await (const chunk of req) buffers.push(chunk);
         try {
           body = JSON.parse(Buffer.concat(buffers).toString() || '{}');
         } catch {}
@@ -86,6 +118,9 @@ export default async function handler(req, res) {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
+        version: '3.0.0',
+        publicSources: ['OFR', 'New York Fed', 'ECB', 'ISO 10383'],
+        licensed: { connected: false, reason: 'Exact licensed product, entitlements and deployment constraints have not been configured.' },
         bloomberg: { available: false, state: 'Desktop BLPAPI not connected' },
         lseg: { available: false, state: 'LSEG Data Library not connected' },
         timestamp: new Date().toISOString()
